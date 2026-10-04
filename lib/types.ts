@@ -72,6 +72,25 @@ export interface CompsSummary {
   // Median with the deployment's PRICE_MARKUP_PERCENT applied — what the
   // "use median" button should set. Absent when no markup is configured.
   listPrice?: number;
+  // Where the numbers came from. Absent = eBay active comps (the original
+  // behavior). "pricecharting" = a confident trading-card match; the client
+  // prefills suggested_price from it (see lib/cardPricing.ts).
+  source?: "ebay_active" | "pricecharting";
+  // Set when the item is a trading card but no confident card-specific price
+  // was found — any band shown is the active-comps fallback and should not be
+  // trusted for cards. The UI says so.
+  lowConfidence?: boolean;
+  lowConfidenceReason?: string;
+  // The PriceCharting product the card price came from, for the UI to show.
+  cardMatch?: CardMatch;
+}
+
+export interface CardMatch {
+  id: string;
+  name: string;
+  set: string;
+  // Grade the price is for, e.g. "Ungraded", "PSA 10", "Grade 9".
+  grade: string;
 }
 
 export interface ItemGroup {

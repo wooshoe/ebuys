@@ -394,9 +394,25 @@ export default function Home() {
           try {
             const res = await apiPost("/api/ebay/comps", { listing: data.listing });
             const d = (await readJson(res)) as { ok?: boolean; comps?: CompsSummary };
-            if (d.ok && d.comps?.ok) {
+            const comps = d.comps;
+            // Low-confidence card results are kept even with no band, so the
+            // card can tell the seller the price needs checking.
+            if (d.ok && comps && (comps.ok || comps.lowConfidence)) {
+              // A confident card price replaces the AI's guess — unless the
+              // seller already edited the price while the check was running.
+              const cardPrice =
+                comps.source === "pricecharting" && !comps.lowConfidence
+                  ? comps.listPrice ?? comps.median
+                  : undefined;
               setGroups((prev) =>
-                prev.map((g) => (g.id === groupId ? { ...g, comps: d.comps } : g))
+                prev.map((g) => {
+                  if (g.id !== groupId) return g;
+                  const untouched =
+                    g.listing?.suggested_price === data.listing!.suggested_price;
+                  return cardPrice !== undefined && untouched && g.listing
+                    ? { ...g, comps, listing: { ...g.listing, suggested_price: cardPrice } }
+                    : { ...g, comps };
+                })
               );
             }
           } catch {

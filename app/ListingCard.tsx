@@ -204,7 +204,22 @@ export function ListingCard({
                   }
                 />
               </div>
-              {group.comps?.ok && group.comps.median !== undefined && (
+              {group.comps?.source === "pricecharting" && group.comps.median !== undefined && (
+                <span className="comps-line" title={group.comps.basis}>
+                  Card value ({group.comps.cardMatch?.grade}): $
+                  {group.comps.median.toFixed(2)} · matched {group.comps.cardMatch?.name}
+                  {group.comps.cardMatch?.set ? ` (${group.comps.cardMatch.set})` : ""}
+                  {group.comps.listPrice !== undefined ? " · price includes markup" : ""}
+                </span>
+              )}
+              {group.comps?.lowConfidence && (
+                <span className="comps-line comps-low" role="note">
+                  ⚠️ Low-confidence card price
+                  {group.comps.lowConfidenceReason ? ` — ${group.comps.lowConfidenceReason}` : ""}{" "}
+                  Check sold listings before posting.
+                </span>
+              )}
+              {group.comps?.ok && group.comps.source !== "pricecharting" && group.comps.median !== undefined && (
                 <span className="comps-line" title={group.comps.basis}>
                   Market: {group.comps.count} similar active listings, $
                   {group.comps.low?.toFixed(0)}–${group.comps.high?.toFixed(0)}

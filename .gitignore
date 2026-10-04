@@ -26,3 +26,4 @@ public/test-photos.json
 # vercel local project link
 .vercel
 .env*
+!.env.example
