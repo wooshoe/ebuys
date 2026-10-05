@@ -20,7 +20,19 @@ export interface ListingResult {
   key_features?: string[];
   item_specifics?: Record<string, string>;
   item_profile?: string;
+  // Seller's choice on the card; never set by the model. Absent = Buy It Now
+  // (FIXED_PRICE) at suggested_price, the original behavior. For AUCTION,
+  // auction_start_price is the starting bid and suggested_price, when set, is
+  // an optional Buy It Now price on the auction.
+  listing_format?: ListingFormat;
+  auction_start_price?: number | string;
+  auction_duration?: AuctionDuration;
 }
+
+export type ListingFormat = "FIXED_PRICE" | "AUCTION";
+
+export const AUCTION_DURATIONS = ["DAYS_1", "DAYS_3", "DAYS_5", "DAYS_7", "DAYS_10"] as const;
+export type AuctionDuration = (typeof AUCTION_DURATIONS)[number];
 
 export interface AnalyzeRequestBody {
   // Browser-resized JPEG data URLs or raw base64 strings.
@@ -72,25 +84,6 @@ export interface CompsSummary {
   // Median with the deployment's PRICE_MARKUP_PERCENT applied — what the
   // "use median" button should set. Absent when no markup is configured.
   listPrice?: number;
-  // Where the numbers came from. Absent = eBay active comps (the original
-  // behavior). "pricecharting" = a confident trading-card match; the client
-  // prefills suggested_price from it (see lib/cardPricing.ts).
-  source?: "ebay_active" | "pricecharting";
-  // Set when the item is a trading card but no confident card-specific price
-  // was found — any band shown is the active-comps fallback and should not be
-  // trusted for cards. The UI says so.
-  lowConfidence?: boolean;
-  lowConfidenceReason?: string;
-  // The PriceCharting product the card price came from, for the UI to show.
-  cardMatch?: CardMatch;
-}
-
-export interface CardMatch {
-  id: string;
-  name: string;
-  set: string;
-  // Grade the price is for, e.g. "Ungraded", "PSA 10", "Grade 9".
-  grade: string;
 }
 
 export interface ItemGroup {

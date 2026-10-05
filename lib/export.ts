@@ -14,6 +14,11 @@ function csvCell(value: unknown): string {
 const CSV_COLUMNS: { header: string; get: (l: ListingResult) => string }[] = [
   { header: "Title", get: (l) => l.title ?? "" },
   { header: "Suggested Price", get: (l) => priceNumber(l.suggested_price) },
+  { header: "Format", get: (l) => (l.listing_format === "AUCTION" ? "Auction" : "Buy It Now") },
+  {
+    header: "Starting Bid",
+    get: (l) => (l.listing_format === "AUCTION" ? priceNumber(l.auction_start_price) : ""),
+  },
   { header: "Condition", get: (l) => (l.condition ?? "").replace(/_/g, " ") },
   { header: "Brand", get: (l) => l.brand ?? "" },
   { header: "Item Type", get: (l) => l.item_type ?? "" },

@@ -1008,10 +1008,6 @@ textarea {
   color: var(--color-ink-soft);
 }
 
-.comps-low {
-  color: var(--color-ink);
-}
-
 .comps-use {
   background: none;
   border: none;

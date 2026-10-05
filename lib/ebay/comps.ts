@@ -27,7 +27,30 @@ function isNewGrade(condition: string | undefined): boolean {
   return /^NEW/i.test(String(condition || ""));
 }
 
+// Sports/trading cards. Their price hinges on year, set, parallel, card
+// number, print run, and grade — all in the title, none in "brand + item type"
+// (which would search "Panini Trading Card") — so they get a title query.
+const CARD_CATEGORY_IDS = new Set(["261328", "183454"]); // card singles, CCG singles
+const CARD_ITEM_TYPE_RE =
+  /\b(trading|sports|baseball|basketball|football|hockey|soccer|rookie|pok[eé]mon|tcg|ccg)\s+cards?\b/i;
+
+export function isTradingCard(listing: ListingResult): boolean {
+  const category = String(listing.category || "").trim().toLowerCase();
+  if (category === "trading_card") return true;
+  if (CARD_CATEGORY_IDS.has(String(listing.category_id || "").trim())) return true;
+  if (!["sports_memorabilia", "collectible", "other"].includes(category)) return false;
+  return CARD_ITEM_TYPE_RE.test(`${listing.item_type || ""} ${listing.category_hint || ""}`);
+}
+
+// Seller hype that narrows a search without identifying the card.
+const CARD_FILLER_RE = /\b(rc|rookie(?:\s+card)?|invest(?:ment)?|hot|rare|l@@k|look|nice|sharp)\b|🔥/gi;
+
+function buildCardQuery(title: string): string {
+  return title.replace(CARD_FILLER_RE, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+}
+
 export function buildCompQuery(listing: ListingResult): string {
+  if (isTradingCard(listing)) return buildCardQuery(String(listing.title || ""));
   const brand = String(listing.brand || "").trim();
   const usableBrand = brand && !/^(no\s?brand|unbranded|unknown)$/i.test(brand) ? brand : "";
   const itemType = String(listing.item_type || "").trim();
@@ -46,7 +69,9 @@ interface BrowseItem {
 
 export function filterComps(
   items: BrowseItem[],
-  listingCondition: string | undefined
+  listingCondition: string | undefined,
+  // Cards use eBay's Graded/Ungraded conditions, not the new/used split.
+  ignoreCondition = false
 ): number[] {
   const wantNew = isNewGrade(listingCondition);
   const prices: number[] = [];
@@ -58,7 +83,7 @@ export function filterComps(
     if (it.price?.currency && it.price.currency !== EBAY_CURRENCY) continue;
     if (BAD_COMP_TITLE_RE.test(String(it.title || ""))) continue;
     const condId = Number(it.conditionId);
-    if (Number.isFinite(condId) && condId > 0) {
+    if (!ignoreCondition && Number.isFinite(condId) && condId > 0) {
       const compIsNew = NEW_CONDITION_IDS.has(condId);
       if (compIsNew !== wantNew) continue;
     }
@@ -125,14 +150,17 @@ export async function searchComps(
   const empty: CompsSummary = { ok: false, query, count: 0, confidence: 0, basis: "" };
   if (!query) return empty;
 
+  const card = isTradingCard(listing);
   const wantNew = isNewGrade(listing.condition);
-  const cacheKey = `${query}|${wantNew ? "new" : "used"}`;
+  const cacheKey = `${query}|${card ? "card" : wantNew ? "new" : "used"}`;
   const cached = compsCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.summary;
   const params = new URLSearchParams({
     q: query,
     limit: "50",
-    filter: `buyingOptions:{FIXED_PRICE},conditions:{${wantNew ? "NEW" : "USED"}},priceCurrency:${EBAY_CURRENCY}`,
+    filter: card
+      ? `buyingOptions:{FIXED_PRICE},priceCurrency:${EBAY_CURRENCY}`
+      : `buyingOptions:{FIXED_PRICE},conditions:{${wantNew ? "NEW" : "USED"}},priceCurrency:${EBAY_CURRENCY}`,
   });
   const resp = await fetch(`${EBAY_BROWSE_SEARCH}?${params}`, {
     headers: {
@@ -144,7 +172,7 @@ export async function searchComps(
   if (!resp.ok) return empty;
   const data = await resp.json().catch(() => null);
   const items: BrowseItem[] = data?.itemSummaries ?? [];
-  const prices = filterComps(items, listing.condition);
+  const prices = filterComps(items, listing.condition, card);
   const stats = compStats(prices);
   const summary: CompsSummary = {
     ok: stats.count > 0,
@@ -152,7 +180,7 @@ export async function searchComps(
     ...stats,
     basis:
       stats.count > 0
-        ? `${stats.count} active ${wantNew ? "new" : "pre-owned"} listings matching “${query}” (asking prices, not sold)`
+        ? `${stats.count} active ${card ? "" : wantNew ? "new " : "pre-owned "}listings matching “${query}” (asking prices, not sold)`
         : "",
   };
   if (compsCache.size > COMPS_CACHE_MAX) compsCache.clear();

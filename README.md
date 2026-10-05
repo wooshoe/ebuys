@@ -16,7 +16,8 @@ own eBay developer keys, so you're in full control and there's no middleman.
 - 🔀 Auto-sorts them into separate items (group → verify → un-split)
 - 🏷️ Assigns bin/SKU codes so you can find items later (e.g. `K42-A`, `K42-B`)
 - 🤖 Writes a title, description, item specifics, condition, and suggested price
-- 🃏 Sports/trading cards get a card-specific price from PriceCharting (optional)
+- 🃏 Sports/trading cards get a market check searched by the exact card title (set, parallel, number, grade)
+- 🔨 List each item as **Buy It Now** or **Auction** (starting bid, length, optional Buy It Now price)
 - ✍️ Everything is editable before you post
 - 🚀 Posts straight to eBay — one item or the whole batch
 - 📋 Or export everything as CSV / JSON
@@ -157,7 +158,6 @@ and redeploy with `vercel --prod`.
 | `EBAY_DEFAULT_PACKAGE_LENGTH_IN` / `_WIDTH_IN` / `_HEIGHT_IN` | optional | Default package dimensions in inches. Override the per-item-class defaults. |
 | `EBAY_STRICT_QUALITY` | optional | Set to `1` to **stop** a publish when eBay's item-specifics schema can't be retrieved, instead of publishing with a warning. |
 | `PRICE_MARKUP_PERCENT` | optional | Storewide markup applied to every **auto-suggested** price (the AI estimate and the comps "use median" button) before you review it — for sellers who run a permanent store-level sale that discounts everything. `40` lists at 1.4×. The marked-up price is what you see on the card, and you can still edit it; manually typed prices are never touched. Note the math: +40% then a 40%-off sale nets 84% of the original — to land back on the suggested price after an X%-off sale, set `100·X/(100−X)` (≈`66.7` for 40% off). Unset = no markup. |
-| `PRICECHARTING_API_TOKEN` | optional | API token from <https://www.pricecharting.com/api-documentation> (needs a PriceCharting subscription). Used **only for items identified as sports/trading cards**: the card is looked up by its title (set, card number, parallel, print run) and its grade (ungraded, PSA/BGS/SGC/CGC 7–10), and a confident match **prefills the price** with PriceCharting's sold-price value (plus `PRICE_MARKUP_PERCENT`, if set). You can still edit it. When the token is missing, the lookup fails, or no exact match is found, cards fall back to the usual active-listing market check and the card shows a **low-confidence** warning. Other items are unaffected. |
 | `EBAY_MARKETPLACE_ID` / `EBAY_CATEGORY_TREE_ID` / `EBAY_CURRENCY` | optional, experimental | Marketplace override, e.g. `EBAY_GB` / `3` / `GBP` for eBay UK — set all three together. Defaults: `EBAY_US` / `0` / `USD`. ⚠️ **The US site is the only tested marketplace.** Known gaps on other sites: photo uploads still use the US site ID, condition-tier and size-standardization handling were validated against eBay US, and the UI shows prices with a `$` symbol. After changing marketplace, regenerate the offline category map: `npx tsx scripts/refresh-category-map.ts`. |
 
 **Never commit real keys.** `.env.local` is gitignored; production keys live in

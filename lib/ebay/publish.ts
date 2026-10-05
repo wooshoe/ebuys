@@ -29,7 +29,7 @@ import { fillRecommendedAspects } from "./aspectFill";
 import { extractProductIdentifiers, hasCatalogIdentifier, realBrand } from "./identifiers";
 import { parseMeasurements } from "@/lib/measurements";
 import { APPAREL_CATEGORIES, PANTS_CATEGORIES } from "@/lib/categories";
-import type { ListingResult } from "@/lib/types";
+import { AUCTION_DURATIONS, type ListingResult } from "@/lib/types";
 
 // ── Constants (from the Python script) ───────────────────────────────────────
 
@@ -207,6 +207,59 @@ export function validListingPrice(raw: number | string | undefined): number | nu
   const base = typeof raw === "string" ? parseFloat(raw) : raw;
   if (base === undefined || Number.isNaN(base) || base <= 0) return null;
   return Math.round(base * 100) / 100;
+}
+
+// eBay US requires an auction's Buy It Now price to be at least 30% above the
+// starting bid; checked here so the seller gets a clear message, not an eBay code.
+export const AUCTION_BIN_MIN_RATIO = 1.3;
+
+export type OfferPricing =
+  | {
+      ok: true;
+      format: "FIXED_PRICE" | "AUCTION";
+      pricingSummary: Record<string, { value: string; currency: string }>;
+      listingDuration?: string;
+    }
+  | { ok: false; error: string };
+
+// Offer format + price fields from the seller's choices on the card. Buy It
+// Now (the default) publishes suggested_price; an auction publishes the
+// starting bid, a duration, and suggested_price as an optional Buy It Now.
+export function buildOfferPricing(listing: ListingResult): OfferPricing {
+  const money = (n: number) => ({ value: n.toFixed(2), currency: EBAY_CURRENCY });
+  const binPrice = validListingPrice(listing.suggested_price);
+
+  if (listing.listing_format !== "AUCTION") {
+    if (binPrice === null) {
+      return {
+        ok: false,
+        error:
+          "This listing has no price. Set a price on the listing card before posting — the analysis couldn't estimate one, and posting with a made-up default would misprice the item.",
+      };
+    }
+    return { ok: true, format: "FIXED_PRICE", pricingSummary: { price: money(binPrice) } };
+  }
+
+  const start = validListingPrice(listing.auction_start_price);
+  if (start === null) {
+    return { ok: false, error: "This auction has no starting bid. Set one on the listing card before posting." };
+  }
+  const duration = (AUCTION_DURATIONS as readonly string[]).includes(String(listing.auction_duration))
+    ? String(listing.auction_duration)
+    : "DAYS_7";
+  const pricingSummary: Record<string, { value: string; currency: string }> = {
+    auctionStartPrice: money(start),
+  };
+  if (binPrice !== null) {
+    if (binPrice < Math.round(start * AUCTION_BIN_MIN_RATIO * 100) / 100) {
+      return {
+        ok: false,
+        error: `eBay requires an auction's Buy It Now price to be at least 30% above the starting bid ($${start.toFixed(2)} → at least $${(Math.round(start * AUCTION_BIN_MIN_RATIO * 100) / 100).toFixed(2)}). Raise the Buy It Now price, lower the starting bid, or clear Buy It Now.`,
+      };
+    }
+    pricingSummary.price = money(binPrice);
+  }
+  return { ok: true, format: "AUCTION", pricingSummary, listingDuration: duration };
 }
 
 // eBay's CALCULATED-shipping business policies REQUIRE package weight (and
@@ -973,14 +1026,9 @@ export async function publishListing(
 
   // The seller-reviewed price publishes as-is — no hidden markup, no invented
   // default. A listing with no usable price stops here for review.
-  const price = validListingPrice(listing.suggested_price);
-  if (price === null) {
-    return {
-      success: false,
-      sku,
-      error:
-        "This listing has no price. Set a price on the listing card before posting — the analysis couldn't estimate one, and posting with a made-up default would misprice the item.",
-    };
+  const pricing = buildOfferPricing(listing);
+  if (!pricing.ok) {
+    return { success: false, sku, error: pricing.error };
   }
 
   // Ask eBay for the real LEAF category from the title + hint; the runners-up
@@ -1191,10 +1239,14 @@ export async function publishListing(
   const offerBody: any = {
     sku,
     marketplaceId: EBAY_MARKETPLACE_ID,
-    format: "FIXED_PRICE",
+    format: pricing.format,
     listingDescription: listing.description || "",
-    pricingSummary: { price: { value: String(price), currency: EBAY_CURRENCY } },
-    quantityLimitPerBuyer: 1,
+    pricingSummary: pricing.pricingSummary,
+    // Auctions are single-quantity by definition; the per-buyer cap and a
+    // duration only apply to one format each.
+    ...(pricing.format === "AUCTION"
+      ? { listingDuration: pricing.listingDuration }
+      : { quantityLimitPerBuyer: 1 }),
     categoryId: catId,
     merchantLocationKey: setup.locationKey,
     listingPolicies: {
@@ -1273,6 +1325,32 @@ export async function publishListing(
     if (!existing) {
       logPublishFailure("offer creation", sku, r);
       return { success: false, sku, error: publishErrorMessage("Offer creation failed", r) };
+    }
+    // eBay can't change an offer's format in place, so an unpublished offer
+    // left over in the other format (seller switched Buy It Now ⇄ Auction
+    // after a failed post) is deleted and re-created.
+    const cur = await ebayRequest(accessToken, "GET", `${EBAY_INV_BASE}/offer/${existing}`);
+    const curFormat = String(cur.json?.format || "");
+    if (cur.ok && curFormat && curFormat !== offerBody.format) {
+      const del = await ebayRequest(accessToken, "DELETE", `${EBAY_INV_BASE}/offer/${existing}`);
+      const again = del.ok ? await postOffer() : del;
+      if (![200, 201].includes(again.status)) {
+        logPublishFailure("offer re-create", sku, again);
+        return { success: false, sku, error: publishErrorMessage("Switching listing format failed", again) };
+      }
+      return publishOfferWithRecovery(accessToken, {
+        sku,
+        offerId: again.json?.offerId || "",
+        catId,
+        catKey,
+        listing,
+        aspects,
+        inventoryItem,
+        offerBody,
+        fallbacks,
+        condCandidates,
+        warnings,
+      });
     }
     // Update the pre-existing offer instead.
     const upd = await withTransientRetry(
