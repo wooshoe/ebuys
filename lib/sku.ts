@@ -23,12 +23,21 @@ export function nextSuffix(index: number): string {
   return letters.reverse().join("");
 }
 
-// Build the full item SKU for the Nth item in a bin. With no prefix, fall back
-// to a plain letter so items still have a stable, unique reference.
+// Build the full item SKU for the Nth item in a bin. With no bin code the SKU
+// stays blank, like a listing made on eBay with no custom label — the seller
+// opted into bin lettering only by typing a bin code.
 export function buildSku(prefix: string, index: number): string {
   const clean = sanitizeSku(prefix);
-  const suffix = nextSuffix(index);
-  return clean ? `${clean}-${suffix}` : suffix;
+  return clean ? `${clean}-${nextSuffix(index)}` : "";
+}
+
+// eBay's Inventory API can't publish without a SKU, so an item posted with a
+// blank SKU gets a unique one at post time (it shows as the listing's Custom
+// label in Seller Hub). Time + random keeps it unique across batches, unlike
+// the old bare "A", "B", … that collided with earlier listings.
+export function autoSku(now = Date.now(), rand = Math.random()): string {
+  const r = Math.floor(rand * 36 ** 4).toString(36).padStart(4, "0");
+  return `ITEM-${now.toString(36)}${r}`.toUpperCase();
 }
 
 // Inverse of nextSuffix: "A"→0, "Z"→25, "AA"→26. Returns -1 for non-letters.

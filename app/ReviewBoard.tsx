@@ -202,7 +202,7 @@ export function ReviewBoard({
                 className="board-sku"
                 value={group.sku}
                 aria-label="Item SKU / bin code"
-                placeholder="SKU"
+                placeholder="SKU (optional)"
                 onChange={(e) => onRenameSku(group.id, e.target.value)}
               />
               <input

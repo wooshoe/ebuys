@@ -4,8 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiPost } from "@/lib/api-client";
 import { getAnalysisModel, getSortModel } from "@/lib/model-preferences";
 import { resizeImage } from "@/lib/resize";
-import { buildSku } from "@/lib/sku";
+import { autoSku, buildSku } from "@/lib/sku";
 import { chunkImagesForUpload } from "@/lib/uploadBatches";
+import { applyCardDefaults, CARD_MODE_PROFILE } from "@/lib/cardMode";
 import { EbayConnect } from "./EbayConnect";
 import { ModelSelector } from "./ModelSelector";
 import { ReviewBoard } from "./ReviewBoard";
@@ -85,6 +86,8 @@ async function runPool<T>(
 export default function Home() {
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [binPrefix, setBinPrefix] = useState("");
+  // Upload-page "Card" option: listings start as Auction + New without tags.
+  const [cardMode, setCardMode] = useState(false);
   const [step, setStep] = useState<Step>("upload");
   const [groups, setGroups] = useState<ItemGroup[]>([]);
   const [orphanIds, setOrphanIds] = useState<string[]>([]);
@@ -372,7 +375,7 @@ export default function Home() {
       );
       try {
         const res = await apiPost("/api/analyze", {
-          profile: "auto",
+          profile: cardMode ? CARD_MODE_PROFILE : "auto",
           images: imgs,
           analysisModel: getAnalysisModel() ?? undefined,
           routerModel: getSortModel() ?? undefined,
@@ -381,6 +384,7 @@ export default function Home() {
         if (!data.ok || !data.listing) {
           throw new Error(data.error || "Could not write this listing.");
         }
+        if (cardMode) data.listing = applyCardDefaults(data.listing);
         setGroups((prev) =>
           prev.map((g) =>
             g.id === groupId
@@ -413,7 +417,7 @@ export default function Home() {
         );
       }
     },
-    [photoMap]
+    [photoMap, cardMode]
   );
 
   const writeAll = async () => {
@@ -442,6 +446,12 @@ export default function Home() {
     async (groupId: string) => {
       const group = groupsRef.current.find((g) => g.id === groupId);
       if (!group || !group.listing) return;
+      // A blank SKU (no bin code) gets a unique one now, saved on the item so
+      // a retry re-posts under the same SKU instead of creating a duplicate.
+      const sku = group.sku.trim() || autoSku();
+      if (sku !== group.sku) {
+        setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, sku } : g)));
+      }
       const images = group.photoIds
         .map((id) => photoMap.get(id))
         .filter((p): p is Photo => Boolean(p))
@@ -461,7 +471,7 @@ export default function Home() {
         for (const batch of chunkImagesForUpload(images)) {
           for (let attempt = 0; ; attempt++) {
             const res = await apiPost("/api/ebay/upload-photos", {
-              sku: group.sku,
+              sku,
               images: batch,
               startIndex: uploadedCount,
             });
@@ -499,7 +509,7 @@ export default function Home() {
         let hadTransientRetry = false;
         for (let attempt = 0; ; attempt++) {
           const res = await apiPost("/api/ebay/publish", {
-            sku: group.sku,
+            sku,
             listing: group.listing,
             imageUrls,
           });
@@ -596,7 +606,7 @@ export default function Home() {
               <label htmlFor="bin">
                 Bin / SKU code{" "}
                 <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>
-                  (where these items are stored)
+                  (optional — where these items are stored)
                 </span>
               </label>
               <input
@@ -608,10 +618,37 @@ export default function Home() {
                 autoCapitalize="characters"
               />
               <span className="field-hint">
-                Each item gets {binPrefix ? `${binPrefix.trim()}-A, ${binPrefix.trim()}-B` : "A, B, C"}
-                … in order, so you can find it in the bin later. If this bin
-                already has listings on eBay, lettering continues where it left
-                off. You can edit any SKU after sorting.
+                {binPrefix.trim() ? (
+                  <>
+                    Each item gets {binPrefix.trim()}-A, {binPrefix.trim()}-B
+                    … in order, so you can find it in the bin later. If this
+                    bin already has listings on eBay, lettering continues where
+                    it left off.
+                  </>
+                ) : (
+                  <>
+                    Leave blank to keep SKUs empty, like eBay&rsquo;s default.
+                    eBay needs one to post, so a blank SKU gets a unique code
+                    when the item is posted.
+                  </>
+                )}{" "}
+                You can edit any SKU after sorting.
+              </span>
+            </div>
+
+            <div className="field">
+              <label className="card-mode">
+                <input
+                  type="checkbox"
+                  checked={cardMode}
+                  onChange={(e) => setCardMode(e.target.checked)}
+                />{" "}
+                🃏 Card
+              </label>
+              <span className="field-hint">
+                For a batch of trading cards: every listing starts as an
+                Auction in New without tags condition. You can change either on
+                each listing.
               </span>
             </div>
 
