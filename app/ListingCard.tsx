@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { SIZE_REQUIRED_CATEGORIES } from "@/lib/categories";
-import type { ItemGroup, ListingResult, Photo } from "@/lib/types";
+import type { AuctionDuration, ItemGroup, ListingResult, Photo } from "@/lib/types";
 
 const TITLE_LIMIT = 80;
 
@@ -15,6 +15,24 @@ const CONDITIONS: { value: string; label: string }[] = [
   { value: "GOOD", label: "Pre-owned · Good" },
   { value: "FAIR", label: "Pre-owned · Fair" },
 ];
+
+const AUCTION_DURATION_OPTIONS: { value: AuctionDuration; label: string }[] = [
+  { value: "DAYS_1", label: "1 day" },
+  { value: "DAYS_3", label: "3 days" },
+  { value: "DAYS_5", label: "5 days" },
+  { value: "DAYS_7", label: "7 days" },
+  { value: "DAYS_10", label: "10 days" },
+];
+
+// Starting bid prefilled when the seller switches a listing to Auction.
+const DEFAULT_AUCTION_START = 0.99;
+// Mirrors AUCTION_BIN_MIN_RATIO in lib/ebay/publish.ts (eBay's 30% rule).
+const AUCTION_BIN_MIN_RATIO = 1.3;
+
+function priceNumber(value: ListingResult["suggested_price"]): number | undefined {
+  const n = typeof value === "string" ? parseFloat(value) : value;
+  return n === undefined || Number.isNaN(n) || n <= 0 ? undefined : n;
+}
 
 function formatPrice(value: ListingResult["suggested_price"]): string {
   const n = typeof value === "string" ? parseFloat(value) : value;
@@ -89,13 +107,19 @@ export function ListingCard({
 
   // Publishing refuses a missing/zero price (no more invented defaults), so
   // flag it here the same way size is flagged — before the seller hits Post.
-  const priceNum =
-    typeof listing?.suggested_price === "string"
-      ? parseFloat(listing.suggested_price)
-      : listing?.suggested_price;
+  // Auctions need a starting bid instead; their Buy It Now price is optional
+  // but must clear eBay's 30%-above-start rule when set.
+  const isAuction = listing?.listing_format === "AUCTION";
+  const priceNum = priceNumber(listing?.suggested_price);
+  const startNum = priceNumber(listing?.auction_start_price);
   const priceMissing =
+    group.status === "done" && (isAuction ? startNum === undefined : priceNum === undefined);
+  const binTooLow =
     group.status === "done" &&
-    (priceNum === undefined || Number.isNaN(priceNum) || priceNum <= 0);
+    isAuction &&
+    startNum !== undefined &&
+    priceNum !== undefined &&
+    priceNum < Math.round(startNum * AUCTION_BIN_MIN_RATIO * 100) / 100;
 
   return (
     <article className={`listing-card status-${group.status}`}>
@@ -117,7 +141,11 @@ export function ListingCard({
             )}
             {group.status === "done" &&
               (priceMissing ? (
-                <span style={{ color: "var(--color-danger)" }}>⚠️ needs a price</span>
+                <span style={{ color: "var(--color-danger)" }}>
+                  ⚠️ {isAuction ? "needs a starting bid" : "needs a price"}
+                </span>
+              ) : isAuction ? (
+                <>✅ Auction from {formatPrice(listing?.auction_start_price)} · ready</>
               ) : (
                 <>✅ {formatPrice(listing?.suggested_price)} · ready</>
               ))}
@@ -179,13 +207,81 @@ export function ListingCard({
                 type="text"
                 className="size-input"
                 value={group.sku}
+                placeholder="Optional"
                 disabled={group.postStatus === "posted"}
                 onChange={(e) => onRenameSku(group.id, e.target.value)}
               />
             </div>
-            <div className={`stat editable${priceMissing ? " needs-attention" : ""}`}>
+            <div className="stat editable">
+              <label className="k" htmlFor={`format-${group.id}`}>
+                Format
+              </label>
+              <select
+                id={`format-${group.id}`}
+                value={isAuction ? "AUCTION" : "FIXED_PRICE"}
+                disabled={group.postStatus === "posted"}
+                onChange={(e) =>
+                  onEdit(
+                    group.id,
+                    e.target.value === "AUCTION"
+                      ? {
+                          listing_format: "AUCTION",
+                          auction_start_price:
+                            listing.auction_start_price ?? DEFAULT_AUCTION_START,
+                          auction_duration: listing.auction_duration ?? "DAYS_7",
+                        }
+                      : { listing_format: "FIXED_PRICE" }
+                  )
+                }
+              >
+                <option value="FIXED_PRICE">Buy It Now</option>
+                <option value="AUCTION">Auction</option>
+              </select>
+            </div>
+            {isAuction && (
+              <div className={`stat editable${priceMissing ? " needs-attention" : ""}`}>
+                <label className="k" htmlFor={`start-${group.id}`}>
+                  Starting bid
+                </label>
+                <div className="price-input">
+                  <span aria-hidden="true">$</span>
+                  <input
+                    id={`start-${group.id}`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={priceToInput(listing.auction_start_price)}
+                    onChange={(e) =>
+                      onEdit(group.id, {
+                        auction_start_price:
+                          e.target.value === "" ? "" : Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+                <select
+                  aria-label="Auction length"
+                  value={listing.auction_duration ?? "DAYS_7"}
+                  onChange={(e) =>
+                    onEdit(group.id, { auction_duration: e.target.value as AuctionDuration })
+                  }
+                >
+                  {AUCTION_DURATION_OPTIONS.map((d) => (
+                    <option key={d.value} value={d.value}>
+                      {d.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div
+              className={`stat editable${
+                (!isAuction && priceMissing) || binTooLow ? " needs-attention" : ""
+              }`}
+            >
               <label className="k" htmlFor={`price-${group.id}`}>
-                Price
+                {isAuction ? "Buy It Now (optional)" : "Price"}
               </label>
               <div className="price-input">
                 <span aria-hidden="true">$</span>
@@ -207,7 +303,7 @@ export function ListingCard({
               {group.comps?.ok && group.comps.median !== undefined && (
                 <span className="comps-line" title={group.comps.basis}>
                   Market: {group.comps.count} similar active listings, $
-                  {group.comps.low?.toFixed(0)}–${group.comps.high?.toFixed(0)}
+                  {group.comps.low?.toFixed(2)}–${group.comps.high?.toFixed(2)}
                   {" · "}
                   <button
                     type="button"
@@ -281,7 +377,22 @@ export function ListingCard({
             </p>
           )}
 
-          {priceMissing && (
+          {priceMissing && isAuction && (
+            <p className="size-warning" role="alert">
+              ⚠️ No starting bid yet. Set one above before posting this auction.
+            </p>
+          )}
+
+          {binTooLow && (
+            <p className="size-warning" role="alert">
+              ⚠️ eBay requires an auction&rsquo;s Buy It Now price to be at least
+              30% above the starting bid (at least{" "}
+              {formatPrice(Math.round((startNum ?? 0) * AUCTION_BIN_MIN_RATIO * 100) / 100)}).
+              Raise Buy It Now, lower the starting bid, or clear Buy It Now.
+            </p>
+          )}
+
+          {priceMissing && !isAuction && (
             <p className="size-warning" role="alert">
               ⚠️ No price yet — the analysis couldn&rsquo;t estimate one for
               this item. Set a price above before posting

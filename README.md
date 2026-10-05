@@ -14,8 +14,11 @@ own eBay developer keys, so you're in full control and there's no middleman.
 
 - 📸 Upload a whole batch of photos at once
 - 🔀 Auto-sorts them into separate items (group → verify → un-split)
-- 🏷️ Assigns bin/SKU codes so you can find items later (e.g. `K42-A`, `K42-B`)
+- 🏷️ Optional bin/SKU codes so you can find items later (e.g. `K42-A`, `K42-B`); leave the bin blank and SKUs stay empty like eBay's default
 - 🤖 Writes a title, description, item specifics, condition, and suggested price
+- 🃏 Sports/trading cards get a market check searched by the exact card title (set, parallel, number, grade)
+- 🔨 List each item as **Buy It Now** or **Auction** (starting bid, length, optional Buy It Now price)
+- 🃏 **Card** option on the upload page: a batch of cards starts as Auction, New without tags
 - ✍️ Everything is editable before you post
 - 🚀 Posts straight to eBay — one item or the whole batch
 - 📋 Or export everything as CSV / JSON

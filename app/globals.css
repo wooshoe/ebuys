@@ -755,6 +755,18 @@ textarea {
   font-weight: 600;
 }
 
+/* Upload-page "Card" batch option */
+.field label.card-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.95rem;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
 .field-hint {
   font-size: 0.8rem;
   color: var(--color-ink-faint);

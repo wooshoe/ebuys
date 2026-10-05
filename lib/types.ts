@@ -20,7 +20,19 @@ export interface ListingResult {
   key_features?: string[];
   item_specifics?: Record<string, string>;
   item_profile?: string;
+  // Seller's choice on the card; never set by the model. Absent = Buy It Now
+  // (FIXED_PRICE) at suggested_price, the original behavior. For AUCTION,
+  // auction_start_price is the starting bid and suggested_price, when set, is
+  // an optional Buy It Now price on the auction.
+  listing_format?: ListingFormat;
+  auction_start_price?: number | string;
+  auction_duration?: AuctionDuration;
 }
+
+export type ListingFormat = "FIXED_PRICE" | "AUCTION";
+
+export const AUCTION_DURATIONS = ["DAYS_1", "DAYS_3", "DAYS_5", "DAYS_7", "DAYS_10"] as const;
+export type AuctionDuration = (typeof AUCTION_DURATIONS)[number];
 
 export interface AnalyzeRequestBody {
   // Browser-resized JPEG data URLs or raw base64 strings.
